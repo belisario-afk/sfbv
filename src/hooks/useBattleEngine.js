@@ -118,16 +118,21 @@ export function useBattleEngine() {
     })
   }, [])
 
+  // Only pop when there are at least 2 songs; keep single items in the queue
   const popPairForBattle = useCallback(() => {
     let A = null, B = null
     setQueue(q => {
+      if (q.length < 2) return q // not enough to form a pair; leave queue untouched
       const copy = q.slice()
       A = copy.shift() || null
       B = copy.shift() || null
       return copy
     })
-    setNowPair({ A, B })
-    return { A, B }
+    if (A && B) {
+      setNowPair({ A, B })
+      return { A, B }
+    }
+    return { A: null, B: null }
   }, [])
 
   const startIntro = useCallback(() => {
@@ -225,7 +230,7 @@ export function useBattleEngine() {
 
   const startIfIdle = useCallback(() => {
     if (stage === 'intro' && (!nowPair.A || !nowPair.B)) {
-      popPairForBattle()
+      popPairForBattle() // will only pop when there are 2+
     }
     ensureAutoLoop({})
   }, [stage, nowPair.A, nowPair.B])
