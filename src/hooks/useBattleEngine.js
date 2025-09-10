@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import playbackConfig from '../config/playbackConfig.js'
 import uiConfig from '../config/uiConfig.js'
 
@@ -12,7 +12,7 @@ export function useBattleEngine() {
   // Voting
   const [votesA, setVotesA] = useState(0)
   const [votesB, setVotesB] = useState(0)
-  const votesMapRef = useRef(new Map()) // userId -> 'A' | 'B' for current battle
+  const votesMapRef = useRef(new Map()) // userId -> 'A' | 'B'
   const [votingEnabled, setVotingEnabled] = useState(false)
 
   // Queue and pairing
@@ -67,7 +67,7 @@ export function useBattleEngine() {
     if (!votingEnabled) return
     const choice = (choiceRaw || '').toUpperCase()
     if (choice !== 'A' && choice !== 'B') return
-    if (votesMapRef.current.has(userId)) return // One vote per viewer per battle (both windows persist)
+    if (votesMapRef.current.has(userId)) return
     votesMapRef.current.set(userId, choice)
     if (choice === 'A') setVotesA(v => v + 1)
     else setVotesB(v => v + 1)
@@ -81,6 +81,7 @@ export function useBattleEngine() {
 
     // Dedup by trackId/uri
     const trackId = track.id || track.trackId || track.uri
+    if (!trackId) return
     if (queuedTrackIdsRef.current.has(trackId)) return
 
     // recent-add 8s protection
@@ -92,6 +93,7 @@ export function useBattleEngine() {
       uri: track.uri,
       title: track.title || track.name,
       image: track.image,
+      artists: track.artists || '',
       duration_ms: track.duration_ms,
       username: '@' + (evt?.username || 'unknown'),
       requesterId: userId,
@@ -118,7 +120,7 @@ export function useBattleEngine() {
     })
   }, [])
 
-  // NEW: Only "prepare" a pair (peek the first two) without removing from queue.
+  // Prepare the pair without removing from queue
   const popPairForBattle = useCallback(() => {
     const A = queue[0] || null
     const B = queue[1] || null
@@ -161,7 +163,7 @@ export function useBattleEngine() {
           go('vote1')
         })
       } else if (stage === 'r1A_play') {
-        // CONSUME the prepared pair now that the battle is starting
+        // Consume the prepared pair now that the battle starts
         if (nowPair.A && nowPair.B) {
           setQueue(q => {
             const copy = q.slice()
@@ -225,7 +227,7 @@ export function useBattleEngine() {
 
   const startIfIdle = useCallback(() => {
     if (stage === 'intro' && (!nowPair.A || !nowPair.B)) {
-      popPairForBattle() // now non-destructive; leaves songs visible
+      popPairForBattle() // non-destructive; leaves songs visible
     }
     ensureAutoLoop({})
   }, [stage, nowPair.A, nowPair.B, popPairForBattle])
@@ -244,18 +246,16 @@ export function useBattleEngine() {
   }, [])
 
   return {
-    // state
     stage, stageVersion, isWinnerStage,
     votesA, votesB, percentA, percentB, votingEnabled, setVotingEnabled,
     queue, addToQueue, popPairForBattle,
     nowPair, winner, setWinner,
     hype, addHype, setHype,
-    // vote handling
     processVoteFromUser, resetVotes,
-    // flow
-    startIntro, nextStage: () => {
+    startIntro,
+    nextStage: () => {
       if (stage === 'intro') {
-        if (!nowPair.A || !nowPair.B) popPairForBattle() // non-destructive
+        if (!nowPair.A || !nowPair.B) popPairForBattle()
         return
       }
       bumpVersion()

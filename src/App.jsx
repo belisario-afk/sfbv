@@ -7,6 +7,7 @@ import SettingsPanel from './components/SettingsPanel.jsx'
 import HypeMeter from './components/HypeMeter.jsx'
 import SpotifyTrackSearchModal from './components/SpotifyTrackSearchModal.jsx'
 import VoteOverlay from './components/VoteOverlay.jsx'
+import NowPlayingOverlay from './components/NowPlayingOverlay.jsx'
 
 export default function App() {
   const {
@@ -43,9 +44,10 @@ export default function App() {
               )}
               {queue.map((q, i) => (
                 <div key={q.trackId || q.uri} className="queue-item">
-                  <img src={q.image || ''} alt="" width="56" height="56" style={{ borderRadius: 8, background:'#0a0f20' }} />
+                  <img src={q.image || ''} alt="" width="56" height="56" style={{ borderRadius: 8, background:'#0a0f20', objectFit:'cover' }} />
                   <div className="meta">
                     <div className="title">{q.title}</div>
+                    <div className="by">{q.artists || ''}</div>
                     <div className="by">from {q.requesterDisplay || ''} {q.username ? `• ${q.username}` : ''}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>#{i + 1} • {q.uri}</div>
                   </div>
@@ -75,6 +77,7 @@ export default function App() {
               <div className="health-bar"><div className="fillB" style={{ width: `${percentB}%` }} /></div>
             </div>
             <NeoArena percentA={percentA} percentB={percentB} stage={stage} />
+            <NowPlayingOverlay />
             {isWinnerStage() && <WinnerOverlay winner={winner} />}
             <VoteOverlay stage={stage} votesA={votesA} votesB={votesB} />
             <div className="footer">

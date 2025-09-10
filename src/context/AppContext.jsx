@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useBattleEngine } from '../hooks/useBattleEngine.js'
 import { useChat } from '../hooks/useChat.js'
 import { useSpotifyWebPlayer } from '../hooks/useSpotifyWebPlayer.js'
@@ -21,7 +21,7 @@ function parseSpotifyIdFromText(q) {
   return m ? m[1] : null
 }
 
-// Ensure any track we add has the fields the engine/UI expect
+// Normalize track to ensure trackId/uri/image/title/artists exist
 function normalizeTrack(track) {
   if (!track) return null
   const uri = track.uri || (track.id ? `spotify:track:${track.id}` : '')
@@ -29,15 +29,14 @@ function normalizeTrack(track) {
     track.trackId ||
     track.id ||
     (uri && uri.startsWith('spotify:track:') ? uri.split(':').pop() : null)
-
   if (!trackId) return null
-
   return {
     ...track,
     trackId,
     uri: uri || `spotify:track:${trackId}`,
     title: track.title || track.name || `Track ${trackId}`,
-    image: track.image || track.albumArt || track.albumImage || ''
+    image: track.image || track.albumArt || track.albumImage || '',
+    artists: track.artists || ''
   }
 }
 
@@ -59,8 +58,6 @@ export function AppProvider({ children }) {
     }
   }, [settings])
 
-  const spotifyAuthed = isSpotifyAuthedNow()
-
   const {
     stage, stageVersion, startIntro, nextStage, isWinnerStage, setWinner,
     setVotingEnabled, processVoteFromUser, resetVotes, votesA, votesB, percentA, percentB,
@@ -76,7 +73,9 @@ export function AppProvider({ children }) {
     ensureAuth, playUri, resumeUriAt, getAccessToken, searchTracks
   } = useSpotifyWebPlayer(() => settings.spotifyClientId)
 
-  // Helper: add placeholder track when only a Spotify URI/URL is provided and we're not authed yet
+  const spotifyAuthed = isSpotifyAuthedNow()
+
+  // Helper: add placeholder from URI/URL when not authed
   const addManualUri = (uri, evt) => {
     const id = parseSpotifyIdFromText(uri) || uri
     const entry = normalizeTrack({
@@ -85,13 +84,45 @@ export function AppProvider({ children }) {
       title: `Requested track ${id}`,
       image: '',
       duration_ms: 0,
-      requesterDisplay: evt?.displayName || evt?.username || 'viewer',
-      username: evt?.username || ''
+      artists: ''
     })
     if (entry) addToQueue(entry, evt)
   }
 
-  // Try to auth shortly after load
+  // Expose manual add/search helpers
+  async function addTrackByQuery(q, evt) {
+    if (!q) return
+    const id = parseSpotifyIdFromText(q)
+    try {
+      if (id) {
+        if (spotifyAuthed) {
+          const t = await getTrackMeta(`spotify:track:${id}`, getAccessToken)
+          const entry = normalizeTrack(t)
+          if (entry) addToQueue(entry, evt)
+        } else {
+          addManualUri(`spotify:track:${id}`, evt)
+        }
+        return
+      }
+      // Text query
+      if (!spotifyAuthed) {
+        sendSystemMessage('Connect Spotify to search by text, or paste a Spotify track link.')
+        return
+      }
+      const results = await searchTracks(q, undefined, 1)
+      const entry = normalizeTrack(results?.[0])
+      if (entry) addToQueue(entry, evt)
+      else sendSystemMessage('No track found for your query.')
+    } catch {
+      sendSystemMessage('Search failed. Ensure Spotify is connected.')
+    }
+  }
+
+  async function addTrackByUri(uri, evt) {
+    await addTrackByQuery(uri, evt)
+  }
+
+  // Kick off Spotify auth shortly after load (optional)
   useEffect(() => {
     const id = setTimeout(() => {
       ensureAuth().catch(() => {})
@@ -99,7 +130,7 @@ export function AppProvider({ children }) {
     return () => clearTimeout(id)
   }, [ensureAuth])
 
-  // Command wiring
+  // Wire chat commands
   useEffect(() => {
     setVoteHandler((userId, choice) => {
       processVoteFromUser(userId, choice)
@@ -109,61 +140,21 @@ export function AppProvider({ children }) {
       if (cmd === 'battle') {
         const q = args.join(' ').trim()
         if (!q) return
-
-        const trackIdFromText = parseSpotifyIdFromText(q)
-        if (!spotifyAuthed && !trackIdFromText) {
-          sendSystemMessage('Spotify not connected. Connect in Settings, or send a Spotify track link.')
-          return
-        }
-
-        try {
-          if (trackIdFromText && !spotifyAuthed) {
-            // Add placeholder immediately when not authed
-            addManualUri(`spotify:track:${trackIdFromText}`, evt)
-            sendSystemMessage(`Queued by ${evt.username}: spotify:track:${trackIdFromText}`)
-            return
-          }
-
-          // We are authed: resolve to real track metadata or search by text
-          let track
-          if (trackIdFromText) {
-            const raw = await getTrackMeta(`spotify:track:${trackIdFromText}`, getAccessToken)
-            track = normalizeTrack(raw)
-          } else {
-            const results = await searchTracks(q, undefined, 1)
-            track = normalizeTrack(results?.[0])
-          }
-          if (track) {
-            // stamp requester for UI
-            track.requesterDisplay = evt?.displayName || evt?.username || 'viewer'
-            track.username = evt?.username || ''
-            addToQueue(track, evt)
-            sendSystemMessage(`Queued: ${track.title} — requested by ${evt.username}`)
-          } else {
-            sendSystemMessage('No track found for your query.')
-          }
-        } catch (e) {
-          sendSystemMessage('Search failed. Ensure Spotify is connected in Settings.')
-        }
+        await addTrackByQuery(q, evt)
       }
-
       if (cmd === 'pair' || cmd === 'q' || cmd === 'demo') {
         try {
           if (spotifyAuthed) {
             const seeds = await searchTracks('genre:party OR genre:dance', undefined, 4)
             const picks = (seeds || []).slice(0, 2).map(normalizeTrack).filter(Boolean)
             if (picks.length) {
-              picks.forEach(t => {
-                t.requesterDisplay = evt?.displayName || evt?.username || 'demo'
-                t.username = evt?.username || 'demo'
-                addToQueue(t, evt)
-              })
+              picks.forEach(t => addToQueue(t, evt))
               sendSystemMessage('Demo pair queued from Spotify search.')
               return
             }
           }
         } catch {}
-        // Fallback to two known URIs as placeholders
+        // Fallback URIs
         addManualUri('spotify:track:4uLU6hMCjMI75M1A2tKUQC', { username: 'demo', displayName: 'Demo' })
         addManualUri('spotify:track:3n3Ppam7vgaVa1iaRUc9Lp', { username: 'demo', displayName: 'Demo' })
         sendSystemMessage('Demo pair queued (placeholder URIs).')
@@ -177,7 +168,7 @@ export function AppProvider({ children }) {
     })
   }, [setVoteHandler, setCommandHandler, setGiftHandler, addToQueue, addHype, searchTracks, getAccessToken, spotifyAuthed, onGiftFrom])
 
-  // Auto loop playback handlers
+  // Orchestrate playback; victory resume at 20s
   useEffect(() => {
     ensureAutoLoop({
       onPlay: async (entry) => {
@@ -186,7 +177,7 @@ export function AppProvider({ children }) {
       },
       onVictoryPlay: async (winning) => {
         if (!winning?.uri) return
-        const pos = (winning.duration_ms && winning.duration_ms < 40000) ? 5000 : 40000
+        const pos = (winning.duration_ms && winning.duration_ms < 20000) ? 5000 : 20000
         await resumeUriAt(winning.uri, pos)
       }
     })
@@ -205,7 +196,6 @@ export function AppProvider({ children }) {
         if (e.key === 's') nextStage()
         if (e.key === 'p') pauseResume()
         if (e.key === 'q') {
-          // trigger demo pair
           ;(async () => {
             try {
               if (spotifyAuthed) {
@@ -226,7 +216,9 @@ export function AppProvider({ children }) {
     },
     events,
     spotifyAuthed,
-    connectSpotify: () => ensureAuth().catch(()=>{})
+    connectSpotify: () => ensureAuth().catch(()=>{}),
+    addTrackByQuery,
+    addTrackByUri
   }
 
   return (

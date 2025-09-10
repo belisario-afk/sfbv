@@ -2,13 +2,25 @@ import React, { useEffect, useState } from 'react'
 import { useAppStore } from '../context/AppContext.jsx'
 
 export default function SettingsPanel() {
-  const { settings, setSettings, spotifyAuthed, connectSpotify } = useAppStore()
+  const {
+    settings, setSettings, spotifyAuthed, connectSpotify,
+    addTrackByQuery
+  } = useAppStore()
   const [local, setLocal] = useState(settings)
+  const [manual, setManual] = useState('')
 
   useEffect(() => setLocal(settings), [settings])
 
   function apply() {
     setSettings(local)
+  }
+
+  async function handleAdd(e) {
+    e.preventDefault()
+    const q = manual.trim()
+    if (!q) return
+    await addTrackByQuery(q, { username: 'manual', displayName: 'Manual' })
+    setManual('')
   }
 
   return (
@@ -40,11 +52,28 @@ export default function SettingsPanel() {
           <option value="high">High</option>
         </select>
       </div>
+
       <div style={{display:'flex', alignItems:'end', gap:8}}>
         <button onClick={apply}>Apply</button>
         <span className="badge">Spotify: {spotifyAuthed ? 'Connected' : 'Not connected'}</span>
         <button onClick={connectSpotify}>Connect Spotify</button>
-        <a href="https://belisario-afk.github.io/sfbv/callback" target="_blank" rel="noreferrer" className="badge">Callback URL</a>
+        <a href={`${location.origin}/sfbv/callback`} target="_blank" rel="noreferrer" className="badge">Callback URL</a>
+      </div>
+
+      <div style={{ gridColumn: '1 / -1', marginTop: 10 }}>
+        <label className="label">Manual add / search (Spotify URL/URI or text)</label>
+        <form onSubmit={handleAdd} style={{ display:'flex', gap:8 }}>
+          <input
+            className="input"
+            placeholder="e.g. https://open.spotify.com/track/... or Sandstorm"
+            value={manual}
+            onChange={(e)=>setManual(e.target.value)}
+          />
+          <button type="submit">Add</button>
+        </form>
+        <div style={{ fontSize: 12, color: 'var(--muted)', marginTop: 6 }}>
+          Tip: Paste a Spotify track link to add immediately; text search requires Spotify to be connected.
+        </div>
       </div>
     </div>
   )
