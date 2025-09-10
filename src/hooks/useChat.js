@@ -17,10 +17,11 @@ export function useChat(settings) {
   const voteHandlerRef = useRef(null)
   const commandHandlerRef = useRef(null)
   const giftHandlerRef = useRef(null)
+  const retryRef = useRef(0)
+  const simStopRef = useRef(null)
 
   function append(evt) {
     setEvents(e => [...e.slice(-400), evt])
-    // vote parse
     if (evt.type === 'chat' && evt.text) {
       const t = evt.text.trim().toLowerCase()
       if (t === 'a' || t === '!a' || t.includes(' vote a')) voteHandlerRef.current?.(evt.userId || evt.username, 'A')
@@ -41,13 +42,24 @@ export function useChat(settings) {
   }
 
   function connectRelay() {
-    const url = new URL(settings.relayUrl)
+    // Stop any simulation loop if switching
+    if (simStopRef.current) { simStopRef.current(); simStopRef.current = null }
+
+    const base = settings.relayUrl || ''
+    let url
+    try {
+      url = new URL(base)
+    } catch {
+      append({type:'room_info', text:`[relay url invalid: ${base}]`, ts: Date.now()})
+      return
+    }
     if (!url.searchParams.has('room')) {
       url.searchParams.set('room', settings.tiktokRoom || 'lmohss')
     }
     const ws = new WebSocket(url.toString())
     wsRef.current = ws
     ws.addEventListener('open', () => {
+      retryRef.current = 0
       append({type:'room_info', text:`[relay connected ${url.toString()}]`, ts: Date.now()})
     })
     ws.addEventListener('message', (msg) => {
@@ -58,8 +70,18 @@ export function useChat(settings) {
     })
     ws.addEventListener('close', () => {
       append({type:'room_info', text:'[relay disconnected]', ts: Date.now()})
-      // reconnect
-      setTimeout(() => connectRelay(), 2000)
+      // reconnect with backoff, fallback to simulation after 5 tries
+      retryRef.current += 1
+      if (retryRef.current >= 5) {
+        append({type:'room_info', text:'[relay unavailable] falling back to simulation mode locally', ts: Date.now()})
+        connectSim()
+        return
+      }
+      const delay = Math.min(5000, 500 * retryRef.current)
+      setTimeout(() => connectRelay(), delay)
+    })
+    ws.addEventListener('error', () => {
+      try { ws.close() } catch {}
     })
   }
 
@@ -68,8 +90,10 @@ export function useChat(settings) {
   }
 
   function connectSim() {
+    // stop prior sim
+    if (simStopRef.current) simStopRef.current()
     append({type:'room_info', text:'[simulation mode active]', ts: Date.now()})
-    const emit = () => {
+    const id = setInterval(() => {
       const kind = Math.random()
       const user = randPick(SIM_USERS)
       if (kind < 0.65) {
@@ -80,7 +104,7 @@ export function useChat(settings) {
           username: '@'+user,
           displayName: user.toUpperCase(),
           avatarUrl: '',
-          text: Math.random() < 0.2 ? `!battle ${Math.random()<0.5?'spotify:track:4uLU6hMCjMI75M1A2tKUQC':'Sandstorm'}` : vote,
+          text: Math.random() < 0.25 ? `!battle ${Math.random()<0.5?'spotify:track:4uLU6hMCjMI75M1A2tKUQC':'Sandstorm'}` : vote,
           ts: Date.now()
         })
       } else if (kind < 0.85) {
@@ -96,13 +120,14 @@ export function useChat(settings) {
       } else {
         append({ type:'like', userId:'sim:'+user, username:'@'+user, ts: Date.now() })
       }
-    }
-    const id = setInterval(emit, 1000)
+    }, 1000)
+    simStopRef.current = () => clearInterval(id)
     wsRef.current = { close: () => clearInterval(id) }
   }
 
   function connectDefault() {
     if (wsRef.current) try { wsRef.current.close() } catch {}
+    retryRef.current = 0
     if (settings.chatMode === 'relay') connectRelay()
     else if (settings.chatMode === 'direct') connectDirect()
     else connectSim()

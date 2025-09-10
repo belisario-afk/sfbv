@@ -18,20 +18,9 @@ html, body, #root {
   background: radial-gradient(1200px 800px at 50% 0%, #121829 0%, var(--bg) 60%);
   color: var(--text);
   font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Arial, "Apple Color Emoji", "Segoe UI Emoji";
-  overflow: hidden;
 }
 
-a { color: var(--accent); text-decoration: none; }
-button {
-  background: linear-gradient(180deg, #1f2a44, #111729);
-  color: var(--text);
-  border: 1px solid #253253;
-  border-radius: 10px;
-  padding: 10px 14px;
-  cursor: pointer;
-}
-button:disabled { opacity: 0.5; cursor: not-allowed; }
-
+/* Fit one screen, allow inner panels to scroll */
 .layout {
   display: grid;
   grid-template-columns: 1fr 420px;
@@ -39,9 +28,10 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   grid-template-areas:
     "header header"
     "main chat";
-  height: 100%;
+  height: 100vh; /* Fill viewport */
   gap: 10px;
   padding: 10px;
+  overflow: hidden; /* Contain scroll inside panels */
 }
 
 .header {
@@ -71,26 +61,35 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   display: grid;
   grid-template-columns: 340px 1fr 340px;
   gap: 10px;
+  min-height: 0; /* allow inner flex children to shrink */
 }
 
+.leftCol, .rightCol { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
+.centerCol { position: relative; min-height: 0; }
+
+/* Panels are flexible, scroll inside body, no fixed heights */
 .panel {
+  display: flex;
+  flex-direction: column;
   background: rgba(18, 24, 41, 0.7);
   border: 1px solid #1b2542;
   border-radius: 12px;
-  height: calc(100vh - 110px);
-  overflow: hidden;
+  min-height: 0; /* critical for flex overflow handling */
 }
-
-.leftCol, .rightCol { display: flex; flex-direction: column; gap: 8px; }
-.centerCol { position: relative; }
 
 .panel-header {
   padding: 10px 12px;
   border-bottom: 1px solid #202c4e;
   font-weight: 600;
   color: var(--muted);
+  flex: 0 0 auto;
 }
-.panel-body { padding: 10px; overflow: auto; height: calc(100% - 44px); }
+.panel-body {
+  padding: 10px;
+  overflow: auto; /* scroll inside panel */
+  flex: 1 1 auto;
+  min-height: 0;
+}
 
 .queue-item {
   display: flex;
@@ -100,6 +99,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   border: 1px solid #1e2a4c;
   border-radius: 10px;
   background: #0f1426;
+  margin-bottom: 8px;
 }
 .queue-item .meta { display: flex; flex-direction: column; }
 .queue-item .title { font-weight: 600; }
@@ -138,6 +138,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   display: flex;
   gap: 10px;
   width: 70%;
+  pointer-events: none;
 }
 .health-bar {
   flex: 1;

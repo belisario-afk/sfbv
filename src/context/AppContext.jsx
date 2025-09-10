@@ -1,13 +1,10 @@
-import React, { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { create } from 'zustand'
+import React, { createContext, useContext, useEffect, useState } from 'react'
 import { useBattleEngine } from '../hooks/useBattleEngine.js'
 import { useChat } from '../hooks/useChat.js'
 import { useSpotifyWebPlayer } from '../hooks/useSpotifyWebPlayer.js'
-import { searchTracksByQuery, getTrackMeta } from '../lib/spotify.js'
-import playbackConfig from '../config/playbackConfig.js'
+import { getTrackMeta } from '../lib/spotify.js'
 
 const AppContext = createContext(null)
-
 export const useAppStore = () => useContext(AppContext)
 
 export function AppProvider({ children }) {
@@ -32,7 +29,7 @@ export function AppProvider({ children }) {
     stage, stageVersion, startIntro, nextStage, isWinnerStage, setWinner,
     setVotingEnabled, processVoteFromUser, resetVotes, votesA, votesB, percentA, percentB,
     queue, addToQueue, popPairForBattle, ensureAutoLoop, hype, addHype, setHype,
-    nowPair, winner, startIfIdle, pauseResume
+    nowPair, winner, startIfIdle, pauseResume, onGiftFrom
   } = useBattleEngine()
 
   const {
@@ -41,8 +38,18 @@ export function AppProvider({ children }) {
 
   // Spotify
   const {
-    ensureAuth, playUri, resumeUriAt, currentlyPlaying, ready, getAccessToken, searchTracks
+    ensureAuth, playUri, resumeUriAt, ready, getAccessToken, searchTracks
   } = useSpotifyWebPlayer(() => settings.spotifyClientId)
+
+  // Kick off Spotify auth once (so !battle works even before first playback)
+  useEffect(() => {
+    const id = setTimeout(() => {
+      ensureAuth().catch(() => {
+        // user will be redirected for auth; ignore here
+      })
+    }, 800)
+    return () => clearTimeout(id)
+  }, [ensureAuth])
 
   // Process incoming chat for votes and commands
   useEffect(() => {
@@ -50,52 +57,48 @@ export function AppProvider({ children }) {
       processVoteFromUser(userId, choice)
     })
     setCommandHandler(async (cmd, args, evt) => {
-      // rate limit, dedupe inside battle engine queue layer
       if (cmd === 'battle') {
         const q = args.join(' ').trim()
         if (!q) return
         try {
+          await ensureAuth()
           let track
           if (q.startsWith('spotify:track:') || q.includes('open.spotify.com/track/')) {
             track = await getTrackMeta(q, getAccessToken)
           } else {
-            const res = await searchTracks(q || '', getAccessToken, 1)
+            const res = await searchTracks(q, undefined, 1)
             track = res?.[0]
           }
           if (track) {
             addToQueue(track, evt)
-            sendSystemMessage(`Queued: ${track.title} — requested by @${evt.username}`)
+            sendSystemMessage(`Queued: ${track.title} — requested by ${evt.username}`)
           } else {
             sendSystemMessage('No track found for your query.')
           }
         } catch (e) {
-          sendSystemMessage('Search failed: ' + e.message)
+          sendSystemMessage('Search failed, check Spotify auth. ' + (e?.message || e))
         }
       }
-      if (cmd === 'demo' || cmd === 'pair' || cmd === 'q') {
-        // pick two from queue or recent search fallback
-        if (queue.length >= 2) {
-          // handled automatically on start
-          sendSystemMessage('Next pair prepared.')
-        } else {
-          try {
-            const seeds = await searchTracks('genre:bass OR genre:party', getAccessToken, 4)
-            seeds?.forEach(t => addToQueue(t, evt))
-          } catch {}
-        }
+      if (cmd === 'pair' || cmd === 'q' || cmd === 'demo') {
+        try {
+          await ensureAuth()
+          const seeds = await searchTracks('genre:party OR genre:dance', undefined, 4)
+          seeds.slice(0,2).forEach(t => addToQueue(t, evt))
+          sendSystemMessage('Demo pair queued.')
+        } catch {}
       }
     })
     setGiftHandler((evt) => {
-      // Hype and queue boost
       const value = Number(evt.value || 0)
       addHype(value)
+      onGiftFrom(evt.userId || evt.username, value)
     })
-  }, [setVoteHandler, setCommandHandler, setGiftHandler, addToQueue, addHype, queue.length])
+  }, [setVoteHandler, setCommandHandler, setGiftHandler, addToQueue, addHype, searchTracks, ensureAuth, getAccessToken, onGiftFrom])
 
-  // Battle loop: start -> play A -> play B -> vote1 -> play A -> play B -> vote2 -> winner -> victory_play -> finished -> next
+  // Battle loop orchestration
   useEffect(() => {
     ensureAutoLoop({
-      onPlay: async (entry, label) => {
+      onPlay: async (entry) => {
         if (!entry?.uri) return
         await ensureAuth()
         await playUri(entry.uri)
@@ -103,7 +106,6 @@ export function AppProvider({ children }) {
       onVictoryPlay: async (winning) => {
         if (!winning?.uri) return
         await ensureAuth()
-        // Fallback: if duration < 40s, start at 5s
         const pos = (winning.duration_ms && winning.duration_ms < 40000) ? 5000 : 40000
         await resumeUriAt(winning.uri, pos)
       }
@@ -121,8 +123,15 @@ export function AppProvider({ children }) {
       if (e.key === 's') nextStage()
       if (e.key === 'p') pauseResume()
       if (e.key === 'q') {
-        // quick demo pair
+        // enqueue a demo pair
         sendSystemMessage('Shortcut: demo pair requested.')
+        ;(async () => {
+          try {
+            await ensureAuth()
+            const seeds = await searchTracks('genre:party OR genre:dance', undefined, 4)
+            seeds.slice(0,2).forEach(t => addToQueue(t, { username: 'local', displayName: 'Local' }))
+          } catch {}
+        })()
       }
     }
     window.addEventListener('keydown', handler)
@@ -135,7 +144,7 @@ export function AppProvider({ children }) {
     isWinnerStage, nextStage, startIfIdle, pauseResume,
     queue, nowPair, winner, hype,
     connectChatDefault, initShortcuts,
-    events // expose chat events to UI
+    events
   }
 
   return (
