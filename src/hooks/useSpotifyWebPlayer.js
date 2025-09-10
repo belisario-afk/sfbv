@@ -10,7 +10,7 @@ export function useSpotifyWebPlayer(getClientId) {
 
   const getAccessToken = useCallback(async () => {
     let t = await refreshIfNeeded()
-    tokenRef.current = t?.access_token
+    tokenRef.current = t?.access_token || null
     return tokenRef.current
   }, [])
 
@@ -27,7 +27,7 @@ export function useSpotifyWebPlayer(getClientId) {
             name: 'SFBV Web Player',
             getOAuthToken: async cb => {
               const t = await getAccessToken()
-              cb(t)
+              cb(t || '')
             },
             volume: 0.8
           })
@@ -62,18 +62,21 @@ export function useSpotifyWebPlayer(getClientId) {
 
   const playUri = useCallback(async (uri) => {
     const token = await getAccessToken()
+    if (!token) return // no-op if not authenticated yet
     await transferPlaybackIfNeeded(token, deviceId)
     await playUrisOnUser(token, deviceId, [uri], 0)
   }, [deviceId, getAccessToken])
 
   const resumeUriAt = useCallback(async (uri, position_ms=40000) => {
     const token = await getAccessToken()
+    if (!token) return // no-op if not authenticated
     await transferPlaybackIfNeeded(token, deviceId)
     await playUrisOnUser(token, deviceId, [uri], position_ms)
   }, [deviceId, getAccessToken])
 
   const searchTracks = useCallback(async (q, _ignored, limit=5) => {
     const token = await getAccessToken()
+    if (!token) return [] // no search until authed
     return searchTracksByQuery(q, () => token, limit)
   }, [getAccessToken])
 

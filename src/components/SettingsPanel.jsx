@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react'
 import { useAppStore } from '../context/AppContext.jsx'
 
 export default function SettingsPanel() {
-  const { settings, setSettings } = useAppStore()
+  const { settings, setSettings, spotifyAuthed, connectSpotify } = useAppStore()
   const [local, setLocal] = useState(settings)
 
   useEffect(() => setLocal(settings), [settings])
@@ -42,7 +42,9 @@ export default function SettingsPanel() {
       </div>
       <div style={{display:'flex', alignItems:'end', gap:8}}>
         <button onClick={apply}>Apply</button>
-        <a href="https://belisario-afk.github.io/sfbv/callback" target="_blank" rel="noreferrer" className="badge">Spotify Callback URL</a>
+        <span className="badge">Spotify: {spotifyAuthed ? 'Connected' : 'Not connected'}</span>
+        <button onClick={connectSpotify}>Connect Spotify</button>
+        <a href="https://belisario-afk.github.io/sfbv/callback" target="_blank" rel="noreferrer" className="badge">Callback URL</a>
       </div>
     </div>
   )
