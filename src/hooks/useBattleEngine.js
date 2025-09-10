@@ -118,22 +118,16 @@ export function useBattleEngine() {
     })
   }, [])
 
-  // Only pop when there are at least 2 songs; keep single items in the queue
+  // NEW: Only "prepare" a pair (peek the first two) without removing from queue.
   const popPairForBattle = useCallback(() => {
-    let A = null, B = null
-    setQueue(q => {
-      if (q.length < 2) return q // not enough to form a pair; leave queue untouched
-      const copy = q.slice()
-      A = copy.shift() || null
-      B = copy.shift() || null
-      return copy
-    })
+    const A = queue[0] || null
+    const B = queue[1] || null
     if (A && B) {
       setNowPair({ A, B })
       return { A, B }
     }
     return { A: null, B: null }
-  }, [])
+  }, [queue])
 
   const startIntro = useCallback(() => {
     bumpVersion()
@@ -147,18 +141,15 @@ export function useBattleEngine() {
   }, [])
 
   const ensureAutoLoop = useCallback(({ onPlay, onVictoryPlay }) => {
-    // Stage machine with guarded timers
-    const v = stageVersion
-
     const schedule = (ms, fn) => stageGuardedTimeout(ms, fn)
 
     const sequence = async () => {
       if (stage === 'intro') {
-        // Prepare pair
+        // Prepare pair (non-destructive)
         if (!nowPair.A || !nowPair.B) {
           const pair = popPairForBattle()
           if (!pair.A || !pair.B) {
-            // no sufficient songs; wait and retry
+            // Not enough songs; wait and retry
             schedule(2000, () => ensureAutoLoop({ onPlay, onVictoryPlay }))
             return
           }
@@ -170,6 +161,16 @@ export function useBattleEngine() {
           go('vote1')
         })
       } else if (stage === 'r1A_play') {
+        // CONSUME the prepared pair now that the battle is starting
+        if (nowPair.A && nowPair.B) {
+          setQueue(q => {
+            const copy = q.slice()
+            if (copy[0]?.trackId === nowPair.A.trackId && copy[1]?.trackId === nowPair.B.trackId) {
+              return copy.slice(2)
+            }
+            return q
+          })
+        }
         if (nowPair.A) onPlay?.(nowPair.A, 'A1')
       } else if (stage === 'r1B_play') {
         if (nowPair.B) onPlay?.(nowPair.B, 'B1')
@@ -190,7 +191,6 @@ export function useBattleEngine() {
       } else if (stage === 'vote2') {
         schedule(playbackConfig.voteMs, () => {
           setVotingEnabled(false)
-          // pick winner
           const w = votesA >= votesB ? nowPair.A : nowPair.B
           setWinner(w)
           go('winner')
@@ -200,15 +200,11 @@ export function useBattleEngine() {
           go('victory_play')
         })
       } else if (stage === 'victory_play') {
-        if (winner) {
-          // victory resume at 40s
-          onVictoryPlay?.(winner)
-        }
+        if (winner) onVictoryPlay?.(winner)
         schedule(playbackConfig.victoryMs, () => {
           go('finished')
         })
       } else if (stage === 'finished') {
-        // reset votes and move to next battle
         resetVotes()
         setNowPair({ A: null, B: null })
         bumpVersion()
@@ -217,23 +213,22 @@ export function useBattleEngine() {
       }
     }
     sequence()
-  }, [stage, stageVersion, nowPair.A, nowPair.B, winner, votesA, votesB])
+  }, [stage, stageVersion, nowPair.A, nowPair.B, winner, votesA, votesB, popPairForBattle])
 
   const addHype = useCallback((value) => {
     setHype(h => {
       const next = Math.min(100, h + Math.min(20, Math.max(1, Math.floor(value/2))))
       return next
     })
-    // decay
     stageGuardedTimeout(3000, () => setHype(h => Math.max(0, h - 5)))
   }, [])
 
   const startIfIdle = useCallback(() => {
     if (stage === 'intro' && (!nowPair.A || !nowPair.B)) {
-      popPairForBattle() // will only pop when there are 2+
+      popPairForBattle() // now non-destructive; leaves songs visible
     }
     ensureAutoLoop({})
-  }, [stage, nowPair.A, nowPair.B])
+  }, [stage, nowPair.A, nowPair.B, popPairForBattle])
 
   const pauseResume = useCallback(() => {
     pausedRef.current = !pausedRef.current
@@ -243,7 +238,6 @@ export function useBattleEngine() {
     return stage === 'winner' || stage === 'victory_play'
   }
 
-  // Public gift boost helper
   const onGiftFrom = useCallback((userId, value) => {
     addHype(value || 1)
     if ((value || 0) >= 10) boostRequester(userId)
@@ -259,13 +253,11 @@ export function useBattleEngine() {
     // vote handling
     processVoteFromUser, resetVotes,
     // flow
-    startIntro, nextStage: () => { // manual skip
+    startIntro, nextStage: () => {
       if (stage === 'intro') {
-        // if no pair -> try to get pair
-        if (!nowPair.A || !nowPair.B) popPairForBattle()
+        if (!nowPair.A || !nowPair.B) popPairForBattle() // non-destructive
         return
       }
-      // immediate advance ignoring timers, but guarded by version
       bumpVersion()
       const order = ['intro','r1A_play','r1B_play','vote1','r2A_play','r2B_play','vote2','winner','victory_play','finished']
       const idx = order.indexOf(stage)
