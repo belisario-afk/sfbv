@@ -21,6 +21,26 @@ function parseSpotifyIdFromText(q) {
   return m ? m[1] : null
 }
 
+// Ensure any track we add has the fields the engine/UI expect
+function normalizeTrack(track) {
+  if (!track) return null
+  const uri = track.uri || (track.id ? `spotify:track:${track.id}` : '')
+  const trackId =
+    track.trackId ||
+    track.id ||
+    (uri && uri.startsWith('spotify:track:') ? uri.split(':').pop() : null)
+
+  if (!trackId) return null
+
+  return {
+    ...track,
+    trackId,
+    uri: uri || `spotify:track:${trackId}`,
+    title: track.title || track.name || `Track ${trackId}`,
+    image: track.image || track.albumArt || track.albumImage || ''
+  }
+}
+
 export function AppProvider({ children }) {
   const [settings, setSettings] = useState(() => {
     const s = JSON.parse(localStorage.getItem('sfbv_settings') || '{}')
@@ -58,15 +78,17 @@ export function AppProvider({ children }) {
 
   // Helper: add placeholder track when only a Spotify URI/URL is provided and we're not authed yet
   const addManualUri = (uri, evt) => {
-    const id = (uri.startsWith('spotify:track:') ? uri.split(':').pop() : uri)
-    const entry = {
+    const id = parseSpotifyIdFromText(uri) || uri
+    const entry = normalizeTrack({
       id,
-      uri: uri.startsWith('spotify:') ? uri : `spotify:track:${id}`,
+      uri: `spotify:track:${id}`,
       title: `Requested track ${id}`,
       image: '',
-      duration_ms: 0
-    }
-    addToQueue(entry, evt)
+      duration_ms: 0,
+      requesterDisplay: evt?.displayName || evt?.username || 'viewer',
+      username: evt?.username || ''
+    })
+    if (entry) addToQueue(entry, evt)
   }
 
   // Try to auth shortly after load
@@ -88,30 +110,33 @@ export function AppProvider({ children }) {
         const q = args.join(' ').trim()
         if (!q) return
 
-        // If not authed, still allow spotify URLs/URIs as placeholders
-        const trackId = parseSpotifyIdFromText(q)
-        if (!spotifyAuthed && !trackId) {
-          sendSystemMessage('Spotify not connected. Open Settings → Connect Spotify to enable search. You can still send a Spotify track link.')
+        const trackIdFromText = parseSpotifyIdFromText(q)
+        if (!spotifyAuthed && !trackIdFromText) {
+          sendSystemMessage('Spotify not connected. Connect in Settings, or send a Spotify track link.')
           return
         }
 
         try {
-          if (trackId && !spotifyAuthed) {
-            // Add placeholder immediately
-            addManualUri(`spotify:track:${trackId}`, evt)
-            sendSystemMessage(`Queued by ${evt.username}: spotify:track:${trackId}`)
+          if (trackIdFromText && !spotifyAuthed) {
+            // Add placeholder immediately when not authed
+            addManualUri(`spotify:track:${trackIdFromText}`, evt)
+            sendSystemMessage(`Queued by ${evt.username}: spotify:track:${trackIdFromText}`)
             return
           }
 
-          // We are authed: resolve to real track metadata
+          // We are authed: resolve to real track metadata or search by text
           let track
-          if (trackId) {
-            track = await getTrackMeta(`spotify:track:${trackId}`, getAccessToken)
+          if (trackIdFromText) {
+            const raw = await getTrackMeta(`spotify:track:${trackIdFromText}`, getAccessToken)
+            track = normalizeTrack(raw)
           } else {
             const results = await searchTracks(q, undefined, 1)
-            track = results?.[0]
+            track = normalizeTrack(results?.[0])
           }
           if (track) {
+            // stamp requester for UI
+            track.requesterDisplay = evt?.displayName || evt?.username || 'viewer'
+            track.username = evt?.username || ''
             addToQueue(track, evt)
             sendSystemMessage(`Queued: ${track.title} — requested by ${evt.username}`)
           } else {
@@ -126,16 +151,21 @@ export function AppProvider({ children }) {
         try {
           if (spotifyAuthed) {
             const seeds = await searchTracks('genre:party OR genre:dance', undefined, 4)
-            if (seeds?.length) {
-              seeds.slice(0,2).forEach(t => addToQueue(t, evt))
+            const picks = (seeds || []).slice(0, 2).map(normalizeTrack).filter(Boolean)
+            if (picks.length) {
+              picks.forEach(t => {
+                t.requesterDisplay = evt?.displayName || evt?.username || 'demo'
+                t.username = evt?.username || 'demo'
+                addToQueue(t, evt)
+              })
               sendSystemMessage('Demo pair queued from Spotify search.')
               return
             }
           }
         } catch {}
         // Fallback to two known URIs as placeholders
-        addManualUri('spotify:track:4uLU6hMCjMI75M1A2tKUQC', { username: 'demo', displayName: 'Demo' }) // NGGYU
-        addManualUri('spotify:track:3n3Ppam7vgaVa1iaRUc9Lp', { username: 'demo', displayName: 'Demo' }) // Mr. Brightside
+        addManualUri('spotify:track:4uLU6hMCjMI75M1A2tKUQC', { username: 'demo', displayName: 'Demo' })
+        addManualUri('spotify:track:3n3Ppam7vgaVa1iaRUc9Lp', { username: 'demo', displayName: 'Demo' })
         sendSystemMessage('Demo pair queued (placeholder URIs).')
       }
     })
@@ -180,7 +210,9 @@ export function AppProvider({ children }) {
             try {
               if (spotifyAuthed) {
                 const seeds = await searchTracks('genre:party OR genre:dance', undefined, 4)
-                seeds.slice(0,2).forEach(t => addToQueue(t, { username: 'local', displayName: 'Local' }))
+                ;(seeds || []).slice(0,2).map(normalizeTrack).filter(Boolean).forEach(t =>
+                  addToQueue({ ...t, requesterDisplay: 'Local', username: 'local' }, { username: 'local' })
+                )
               } else {
                 addManualUri('spotify:track:4uLU6hMCjMI75M1A2tKUQC', { username: 'demo', displayName: 'Demo' })
                 addManualUri('spotify:track:3n3Ppam7vgaVa1iaRUc9Lp', { username: 'demo', displayName: 'Demo' })

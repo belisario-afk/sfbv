@@ -18,7 +18,6 @@ export default function App() {
   useEffect(() => {
     connectChatDefault()
     initShortcuts()
-    // Auto-start intro if idle
     const t = setTimeout(() => startIfIdle(), 800)
     return () => clearTimeout(t)
   }, [])
@@ -43,11 +42,11 @@ export default function App() {
                 </div>
               )}
               {queue.map((q, i) => (
-                <div key={q.trackId} className="queue-item">
-                  <img src={q.image} alt="" width="56" height="56" style={{ borderRadius: 8 }} />
+                <div key={q.trackId || q.uri} className="queue-item">
+                  <img src={q.image || ''} alt="" width="56" height="56" style={{ borderRadius: 8, background:'#0a0f20' }} />
                   <div className="meta">
                     <div className="title">{q.title}</div>
-                    <div className="by">from {q.requesterDisplay} • {q.username}</div>
+                    <div className="by">from {q.requesterDisplay || ''} {q.username ? `• ${q.username}` : ''}</div>
                     <div style={{ fontSize: 11, color: 'var(--muted)' }}>#{i + 1} • {q.uri}</div>
                   </div>
                 </div>
