@@ -1,0 +1,26 @@
+{
+  "name": "sfbv",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TikTok-controlled Song Fight Battle powered by Spotify – React + Vite SPA (GitHub Pages) with optional Render relay server for TikTok chat events.",
+  "homepage": "https://belisario-afk.github.io/sfbv/",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview --host",
+    "deploy": "gh-pages -d dist"
+  },
+  "dependencies": {
+    "@react-three/drei": "^9.113.7",
+    "@react-three/fiber": "^8.15.16",
+    "zustand": "^4.5.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.160.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.3",
+    "gh-pages": "^6.2.0",
+    "vite": "^5.4.2"
+  }
+}

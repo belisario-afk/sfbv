@@ -1,0 +1,16 @@
+services:
+- type: web
+  name: sfbv-relay
+  env: node
+  plan: free
+  region: oregon
+  numInstances: 1
+  buildCommand: "npm install"
+  startCommand: "node index.js"
+  healthCheckPath: "/healthz"
+  autoDeploy: true
+  envVars:
+  - key: NODE_ENV
+    value: production
+  - key: TIKTOK_USERNAME
+    value: lmohss
