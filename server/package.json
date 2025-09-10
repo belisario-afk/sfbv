@@ -1,6 +1,6 @@
 {
   "name": "sfbv-relay",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "private": true,
   "description": "Render-ready relay server that connects to TikTok live chat, normalizes events, and forwards over WebSocket.",
   "main": "index.js",
@@ -13,7 +13,9 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.19.2",
-    "tiktok-live-connector": "^1.7.0",
     "ws": "^8.18.0"
+  },
+  "optionalDependencies": {
+    "tiktok-live-connector": "latest"
   }
 }
